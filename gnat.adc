@@ -1,0 +1,5 @@
+pragma Profile (Ravenscar);
+pragma Assertion_Policy
+(Assertions    => Check,
+ Precondition  => Check,
+ Postcondition => Check);

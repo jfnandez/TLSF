@@ -1,0 +1,141 @@
+with System;
+with System.Storage_Elements;
+with Interfaces;
+
+#if    (ARCH = "32") then
+with Bitwise32;
+#elsif (ARCH = "64") then
+with Bitwise64;
+#end if;
+ 
+use System;
+use System.Storage_Elements;
+use Interfaces;
+
+package TLSF is
+
+   pragma Preelaborate;
+
+#if    (ARCH = "32") then
+   package Bitwise_Ops renames Bitwise32;  
+#elsif (ARCH = "64") then
+   package Bitwise_Ops renames Bitwise64;
+#end if;   
+
+private
+
+   L1_Min  : constant := 6;
+   L1_Max  : constant := 15;
+
+   L2_Log2 : constant := 3;
+   L2_Mask : constant := 2**L2_Log2 - 1;
+   L2_Min  : constant := 0;
+   L2_Max  : constant := L2_Mask;
+
+   subtype L1_Range is Bitwise_Ops.Position range L1_Min .. L1_Max;
+   subtype L2_Range is Bitwise_Ops.Position range L2_Min .. L2_Max;
+   
+   pragma Assert (Storage_Unit   = 8,  "TLSF Storage_Unit error.");   
+   pragma Assert (L1_Range'Size <= 16, "TLSF L1_Range'Size too big.");
+   pragma Assert (L2_Range'Size <= 16, "TLSF L2_Range'Size too big.");
+
+   type Block;
+   type Block_Ptr is access all Block;
+
+#if    (ARCH = "32") then
+   subtype Unsigned_Sys is Unsigned_32;	   
+#elsif (ARCH = "64") then
+  subtype Unsigned_Sys is Unsigned_64;
+#end if;
+
+type Block is
+   record
+  Label        : Unsigned_Sys := 0;
+  Prev_Phys_Bk : Block_Ptr    := null;
+  Prev_Free_Bk : Block_Ptr    := null;
+  Next_Free_Bk : Block_Ptr    := null;
+  Level_One    : L1_Range;
+  Level_Two    : L2_Range;
+   end record;
+
+for Block'Alignment use  4 * Storage_Unit;
+
+#if    (ARCH = "32") then
+  
+  for Block use
+     record
+	Label        at  0 range 0 .. 31;
+	Prev_Phys_Bk at  4 range 0 .. 31;
+	Prev_Free_Bk at  8 range 0 .. 31;
+	Next_Free_Bk at 12 range 0 .. 31;
+	Level_One    at 16 range 0 .. 15;
+	Level_Two    at 18 range 0 .. 15;
+     end record;
+  
+  for Block'Size use 20*Storage_Unit;
+  pragma Assert (Word_Size = 32, "TLSF Word_Size error.");
+  
+#elsif (ARCH = "64") then
+
+  for Block use
+     record
+	Label        at 0  range 0 .. 63;
+	Prev_Phys_Bk at 8  range 0 .. 63;
+	Prev_Free_Bk at 16 range 0 .. 63;
+	Next_Free_Bk at 24 range 0 .. 63;
+	Level_One    at 32 range 0 .. 15;
+	Level_Two    at 34 range 0 .. 15;
+     end record;
+
+  for Block'Size      use 36*Storage_Unit;
+  pragma Assert (Word_Size = 64, "TLSF Word_Size error.");
+  
+#end if;
+
+
+Used_Header_Size : constant Storage_Count := 4*Storage_Unit;
+
+    -- Minimum block size given "L1_Range" and "L2_Range"
+Min_Block_Size : constant := 2**L1_Min;
+
+    -- Maximum block size given "L1_Range" and "L2_Range"
+Max_Block_Size : constant := 2**L1_Max + L2_Max * (2**(L1_Max - L2_Log2));
+
+    function Align      (Size : in Storage_Count) return Storage_Count;
+    function Is_Aligned (Size : in Storage_Count) return Boolean;
+
+    function Block_Start (Addr    : in Address)   return Block_Ptr;
+    function Block_Start (Hdr_Ptr : in Block_Ptr) return Address;
+
+    function Data_Start (Hdr_Ptr : in Block_Ptr) return Address;
+    function Data_Start (Addr    : in Address)   return Block_Ptr;
+
+    function  Get_Size (Hdr_Ptr : in Block_Ptr) return Storage_Count;
+    procedure Set_Size (Hdr_Ptr : in Block_Ptr; Size : in Storage_Count);
+
+    function  Is_Used  (Hdr_Ptr : in Block_Ptr) return Boolean;
+    procedure Set_Used (Hdr_Ptr : in Block_Ptr);
+
+    function  Is_Free  (Hdr_Ptr : in Block_Ptr) return Boolean;
+    procedure Set_Free (Hdr_Ptr : in Block_Ptr);
+
+    function Is_Last  (Hdr_Ptr : in Block_Ptr) return Boolean;
+    function Is_First (Hdr_Ptr : in Block_Ptr) return Boolean;
+
+    procedure Set_Last   (Hdr_Ptr : in Block_Ptr);
+    procedure Reset_Last (Hdr_Ptr : in Block_Ptr);
+
+    function Next_Phys_Block (Hdr_Ptr : in Block_Ptr) return Block_Ptr;
+    function Prev_Phys_Block (Hdr_Ptr : in Block_Ptr) return Block_Ptr;
+
+    procedure Merge_Block
+      (Main_Block : in     Block_Ptr;
+       Next_Block : in out Block_Ptr;
+       New_Size   :    out Storage_Count);
+
+    procedure Split_Block
+      (Old_Block : in     Block_Ptr;
+       New_Block :    out Block_Ptr;
+       New_Size  : in     Storage_Count);
+
+end TLSF;
